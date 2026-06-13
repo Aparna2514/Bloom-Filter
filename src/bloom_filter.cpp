@@ -120,3 +120,113 @@ BloomFilter::BloomFilter(size_t expectedElements , double falsePositiveRate){
  * 
  *******************************************************************************************/
 
+size_t BloomFilter::hash(const std::string &key , size_t i) const {
+
+    /***************************************************************************************
+     * FNV-1a constants for 64-bit
+     * They are mathematically derived and officially standardized as part of the FNV algorithm specification.
+     ------------------------------------------------------------------------------------------
+       FNV_prime 
+     * FNV_prime  :- 2^40 + 2^8 + 0xb3 = 1099511628211
+     * It must satisfy these conditions:
+     * It must be a prime number — primes scatter bits more chaotically, reducing collisions
+     * It must have a specific form 2^s + 2^8 + b 
+     * this makes multiplication spread bits across all 64 positions efficiently
+     * Different bit sizes (32, 64, 128) have their own specific primes — this one is specifically for 64-bit hashing
+     * FNV_prime —> not a seed
+     * It is a fixed mathematical constant used in every multiplication step
+     * It doesn't change — it's part of the algorithm itself, not the starting state
+     * 
+     -------------------------------------------------------------------------------------------------
+       FNV_offset
+     * FNV_offset = 14695981039346656037 -> it is literally the FNV hash of a specific historical string:
+     * Its purpose is to ensure that:
+     * Hashing an empty string doesn't return zero  
+     * The starting state is already "mixed up" before processing any bytes
+     * FNV_offset —> acts like a seed
+     * It is the starting value of the hash before any bytes are processed
+     * It determines the initial state
+     * In the code, h2 uses a modified seed FNV_offset ^ 0xdeadbeefcafeULL to make it independent from h1
+     * 
+     ---------------------------------------------------------------------------------------------------
+     **************************************************************************************************/
+    
+    const uint64_t FNV_prime  = 1099511628211ULL;
+    const uint64_t FNV_offset = 14695981039346656037ULL;
+
+    // h1 — standard FNV-1a
+    uint64_t h1 = FNV_offset ;
+    for(unsigned char c : key){
+        h1 ^= c  ;
+        h1 *= FNV_prime ;
+    }
+
+    // h2 — FNV-1a with a different starting seed for independence
+    uint64_t h2 = FNV_offset ^ 0xdeadbeefcafeULL;
+    for(unsigned char c : key){
+        h2 ^= c ;
+        h2 *= FNV_prime ;
+    }
+
+    // Double hashing: combine h1 and h2 to produce the i-th position
+    return static_cast<size_t>((h1 + i * h2) % m_);
+
+}
+
+//-------------------- INSERT --------------------------------------------------------------
+void BloomFilter::insert(const std::string &key){
+    // Compute k bit positions and set each one to 1
+    for (size_t i = 0; i < k_; i++) {
+        bits_[hash(key, i)] = true;
+    } 
+    n_++;  // track number of inserted elements
+}
+
+//-------------------Contains---------------------------------------------------------------
+bool BloomFilter::contains(const std::string &key) const{
+    // Check all k positions
+    // If ANY bit is 0 → definitely not in set
+    // If ALL bits are 1 → probably in set
+    for (size_t i = 0; i < k_; i++) {
+        if (!bits_[hash(key, i)]) return false ;
+    }
+    return true ;
+}
+
+//------------------Diagnostics---------------------------------------------------------------
+/********************************************************************************************
+ * Theoretical false positive rate formula: P = (1 - e^(-k * n / m)) ^ k
+ * This tells : given how full the filter currently is (n_ elements),
+ * what fraction of non-inserted keys would incorrectly return true?
+ * The formula makes one assumption — that all k bit positions are independent of each other.
+ * In reality they are slightly correlated because the same bit array is shared.
+ * the real false positive rate may differ very slightly — hence theoretical, not exact.
+ * The false positive rate grows as more elements are inserted
+ * more n -> more bits flipped to 1 ->  
+ * non-inserted keys more likely to find all their positions already 1 -> higher false positive rate
+ * 
+ ************************************************************************************************/
+
+double BloomFilter::theoreticalFalsePositiveRate() const{
+    // P = (1 - e^(-k * n / m))^k
+    double exponent = - static_cast<double>(k_)* static_cast<double>(n_)/static_cast<double>(m_);
+    return std::pow(1.0 - std::exp(exponent), static_cast<double>(k_));
+}
+
+size_t BloomFilter::setBitCount() const{
+    // Count how many bits are currently set to 1
+    return static_cast<size_t>(std::count(bits_.begin(), bits_.end(), true));
+}
+
+size_t BloomFilter::bitArraySize() const {
+    return m_ ;
+}
+
+size_t BloomFilter::numHashFunctions() const {
+    return k_ ;
+}
+
+size_t BloomFilter::elementCount() const {
+    return n_;
+}
+
