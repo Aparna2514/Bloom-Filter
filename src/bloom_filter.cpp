@@ -3,6 +3,7 @@
 // Above header provides a set of predefined exception classes for reporting common error conditions.
 // std::invalid_argument is logical error that could theoretically be caught at compile time 
 #include <algorithm> // for count 
+#include <cstdint>    // for uint64_t  
 
 /*****************************************************************************************
  
